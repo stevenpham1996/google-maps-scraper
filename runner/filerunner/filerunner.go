@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gosom/google-maps-scraper/csvfilter"
 	"github.com/gosom/google-maps-scraper/deduper"
 	"github.com/gosom/google-maps-scraper/exiter"
 	"github.com/gosom/google-maps-scraper/runner"
@@ -171,12 +172,22 @@ func (r *fileRunner) setWriters() error {
 			resultsWriter = r.outfile
 		}
 
-		csvWriter := csvwriter.NewCsvWriter(csv.NewWriter(resultsWriter))
-
-		if r.cfg.JSON {
-			r.writers = append(r.writers, jsonwriter.NewJSONWriter(resultsWriter))
+		if r.cfg.Fields != "" {
+			// Use the filtered CSV writer when fields are specified
+			filteredWriter := csvfilter.NewFilteredCsvWriter(csv.NewWriter(resultsWriter), r.cfg.Fields)
+			if r.cfg.JSON {
+				r.writers = append(r.writers, jsonwriter.NewJSONWriter(resultsWriter))
+			} else {
+				r.writers = append(r.writers, filteredWriter)
+			}
 		} else {
-			r.writers = append(r.writers, csvWriter)
+			// Use the standard CSV writer when no fields are specified
+			csvWriter := csvwriter.NewCsvWriter(csv.NewWriter(resultsWriter))
+			if r.cfg.JSON {
+				r.writers = append(r.writers, jsonwriter.NewJSONWriter(resultsWriter))
+			} else {
+				r.writers = append(r.writers, csvWriter)
+			}
 		}
 	}
 

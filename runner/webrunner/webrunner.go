@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gosom/google-maps-scraper/csvfilter"
 	"github.com/gosom/google-maps-scraper/deduper"
 	"github.com/gosom/google-maps-scraper/exiter"
 	"github.com/gosom/google-maps-scraper/runner"
@@ -285,9 +286,16 @@ func (w *webrunner) setupMate(_ context.Context, writer io.Writer, job *web.Job)
 
 	log.Printf("job %s has proxy: %v", job.ID, hasProxy)
 
-	csvWriter := csvwriter.NewCsvWriter(csv.NewWriter(writer))
+	var csvResultWriter scrapemate.ResultWriter
+	if job.Data.Fields != "" {
+		// Use the filtered CSV writer when fields are specified
+		csvResultWriter = csvfilter.NewFilteredCsvWriter(csv.NewWriter(writer), job.Data.Fields)
+	} else {
+		// Use the standard CSV writer when no fields are specified
+		csvResultWriter = csvwriter.NewCsvWriter(csv.NewWriter(writer))
+	}
 
-	writers := []scrapemate.ResultWriter{csvWriter}
+	writers := []scrapemate.ResultWriter{csvResultWriter}
 
 	matecfg, err := scrapemateapp.NewConfig(
 		writers,

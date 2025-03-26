@@ -19,7 +19,8 @@ paths:
                 "lang": "el",
                 "zoom": 15,
                 "depth": 1,
-                "max_time": 3600
+                "max_time": 3600,
+                "fields": "title,address,phone"
               }'
       requestBody:
         required: true
@@ -157,6 +158,42 @@ paths:
         '500':
           description: Internal server error
 
+  /api/v1/jobs/{id}/filter:
+    get:
+      summary: Download job results with field filtering
+      x-code-samples:
+          source: |
+            curl -X GET "http://localhost:8080/api/v1/jobs/18eafda3-53a9-4970-ac96-8f8dfc7011c3/filter?fields=title,address,phone" --output filtered_results.csv
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: fields
+          in: query
+          required: true
+          description: Comma-separated list of fields to include in the output
+          schema:
+            type: string
+            example: "title,address,phone"
+      responses:
+        '200':
+          description: Filtered CSV file
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: Missing fields parameter
+        '404':
+          description: File not found
+        '422':
+          description: Invalid ID
+        '500':
+          description: Internal server error
+
 components:
   schemas:
     ApiError:
@@ -198,6 +235,9 @@ components:
           type: array
           items:
             type: string
+        fields:
+          type: string
+          description: "Comma-separated list of fields to include in the output (e.g., 'title,address,phone')"
 
     ApiScrapeResponse:
       type: object

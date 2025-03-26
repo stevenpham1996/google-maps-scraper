@@ -2,3 +2,6 @@ cache/
 vendor
 bin
 webdata/
+*.csv
+google-maps-scraper
+gmapsdata/

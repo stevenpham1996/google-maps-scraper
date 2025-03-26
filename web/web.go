@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"embed"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -116,6 +117,24 @@ func New(svc *Service, addr string) (*Server, error) {
 		}
 
 		ans.download(w, r)
+	})
+
+	// New endpoint for field filtering
+	mux.HandleFunc("/api/v1/jobs/{id}/filter", func(w http.ResponseWriter, r *http.Request) {
+		r = requestWithID(r)
+
+		if r.Method != http.MethodGet {
+			ans := apiError{
+				Code:    http.StatusMethodNotAllowed,
+				Message: "Method not allowed",
+			}
+
+			renderJSON(w, http.StatusMethodNotAllowed, ans)
+
+			return
+		}
+
+		ans.filterDownload(w, r)
 	})
 
 	handler := securityHeaders(mux)
@@ -429,6 +448,119 @@ func (s *Server) download(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to send file", http.StatusInternalServerError)
 		return
 	}
+}
+
+// filterDownload handles downloading CSV files with field filtering
+func (s *Server) filterDownload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
+		return
+	}
+
+	ctx := r.Context()
+
+	id, ok := getIDFromRequest(r)
+	if !ok {
+		http.Error(w, "Invalid ID", http.StatusUnprocessableEntity)
+
+		return
+	}
+
+	// Get the fields parameter from the query string
+	fields := r.URL.Query().Get("fields")
+	if fields == "" {
+		http.Error(w, "Missing 'fields' parameter", http.StatusBadRequest)
+		return
+	}
+
+	filePath, err := s.svc.GetCSV(ctx, id.String())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	inputFile, err := os.Open(filePath)
+	if err != nil {
+		http.Error(w, "Failed to open file", http.StatusInternalServerError)
+		return
+	}
+	defer inputFile.Close()
+
+	// Set response headers
+	fileName := filepath.Base(filePath)
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=filtered_%s", fileName))
+	w.Header().Set("Content-Type", "text/csv")
+
+	// Create a CSV reader for the input file
+	csvReader := csv.NewReader(inputFile)
+
+	// Create a CSV writer for the response
+	csvWriter := csv.NewWriter(w)
+
+	// We'll use the filterFields function directly instead of the filteredWriter
+
+	// Read the header row
+	header, err := csvReader.Read()
+	if err != nil {
+		http.Error(w, "Failed to read CSV header", http.StatusInternalServerError)
+		return
+	}
+
+	// Write the filtered header
+	filteredHeader := filterFields(header, fields)
+	if err := csvWriter.Write(filteredHeader); err != nil {
+		http.Error(w, "Failed to write CSV header", http.StatusInternalServerError)
+		return
+	}
+
+	// Read and write each row with filtered fields
+	for {
+		row, err := csvReader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			http.Error(w, "Failed to read CSV row", http.StatusInternalServerError)
+			return
+		}
+
+		filteredRow := filterFields(row, fields)
+		if err := csvWriter.Write(filteredRow); err != nil {
+			http.Error(w, "Failed to write CSV row", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	csvWriter.Flush()
+	if err := csvWriter.Error(); err != nil {
+		http.Error(w, "Failed to flush CSV writer", http.StatusInternalServerError)
+		return
+	}
+}
+
+// filterFields filters a row based on the specified fields
+func filterFields(row []string, fields string) []string {
+	// If no fields specified, return all values
+	if fields == "" {
+		return row
+	}
+
+	// Create a map of fields to include
+	fieldMap := make(map[string]bool)
+	for _, field := range strings.Split(fields, ",") {
+		fieldMap[strings.ToLower(strings.TrimSpace(field))] = true
+	}
+
+	// Filter the row
+	filteredRow := make([]string, 0)
+	for i, value := range row {
+		if i < len(row) && fieldMap[strings.ToLower(row[i])] {
+			filteredRow = append(filteredRow, value)
+		}
+	}
+
+	return filteredRow
 }
 
 func (s *Server) delete(w http.ResponseWriter, r *http.Request) {

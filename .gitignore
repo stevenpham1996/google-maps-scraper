@@ -5,3 +5,4 @@ webdata/
 *.csv
 google-maps-scraper
 gmapsdata/
+/node_modules

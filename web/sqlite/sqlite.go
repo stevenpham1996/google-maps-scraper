@@ -25,9 +25,27 @@ func New(path string) (web.JobRepository, error) {
 }
 
 func (repo *repo) Get(ctx context.Context, id string) (web.Job, error) {
+	// Use a transaction with explicit isolation level for better concurrency control
+	tx, err := repo.db.BeginTx(ctx, &sql.TxOptions{
+		ReadOnly: true, // This is a read-only operation
+		Isolation: sql.LevelReadCommitted,
+	})
+	if err != nil {
+		return web.Job{}, err
+	}
+
+	// Ensure transaction is rolled back if there's an error
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		} else {
+			_ = tx.Commit() // Commit the read transaction
+		}
+	}()
+
 	const q = `SELECT * from jobs WHERE id = ?`
 
-	row := repo.db.QueryRowContext(ctx, q, id)
+	row := tx.QueryRowContext(ctx, q, id)
 
 	return rowToJob(row)
 }
@@ -40,23 +58,78 @@ func (repo *repo) Create(ctx context.Context, job *web.Job) error {
 
 	const q = `INSERT INTO jobs (id, name, status, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
 
-	_, err = repo.db.ExecContext(ctx, q, item.ID, item.Name, item.Status, item.Data, item.CreatedAt, item.UpdatedAt)
+	// Use a transaction with explicit isolation level for better concurrency control
+	tx, err := repo.db.BeginTx(ctx, &sql.TxOptions{
+		Isolation: sql.LevelReadCommitted, // Use read committed for better concurrency
+	})
 	if err != nil {
 		return err
 	}
 
-	return nil
+	// Ensure transaction is rolled back if there's an error
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	// Execute the query within the transaction
+	_, err = tx.ExecContext(ctx, q, item.ID, item.Name, item.Status, item.Data, item.CreatedAt, item.UpdatedAt)
+	if err != nil {
+		return err
+	}
+
+	// Commit the transaction
+	return tx.Commit()
 }
 
 func (repo *repo) Delete(ctx context.Context, id string) error {
 	const q = `DELETE FROM jobs WHERE id = ?`
 
-	_, err := repo.db.ExecContext(ctx, q, id)
+	// Use a transaction with explicit isolation level for better concurrency control
+	tx, err := repo.db.BeginTx(ctx, &sql.TxOptions{
+		Isolation: sql.LevelReadCommitted, // Use read committed for better concurrency
+	})
+	if err != nil {
+		return err
+	}
 
-	return err
+	// Ensure transaction is rolled back if there's an error
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	// Execute the query within the transaction
+	_, err = tx.ExecContext(ctx, q, id)
+	if err != nil {
+		return err
+	}
+
+	// Commit the transaction
+	return tx.Commit()
 }
 
 func (repo *repo) Select(ctx context.Context, params web.SelectParams) ([]web.Job, error) {
+	// Use a transaction with explicit isolation level for better concurrency control
+	tx, err := repo.db.BeginTx(ctx, &sql.TxOptions{
+		ReadOnly: true, // This is a read-only operation
+		Isolation: sql.LevelReadCommitted,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Ensure transaction is rolled back if there's an error
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		} else {
+			_ = tx.Commit() // Commit the read transaction
+		}
+	}()
+
 	q := `SELECT * from jobs`
 
 	var args []any
@@ -75,7 +148,8 @@ func (repo *repo) Select(ctx context.Context, params web.SelectParams) ([]web.Jo
 		args = append(args, params.Limit)
 	}
 
-	rows, err := repo.db.QueryContext(ctx, q, args...)
+	// Use the transaction for the query
+	rows, err := tx.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -108,9 +182,29 @@ func (repo *repo) Update(ctx context.Context, job *web.Job) error {
 
 	const q = `UPDATE jobs SET name = ?, status = ?, data = ?, updated_at = ? WHERE id = ?`
 
-	_, err = repo.db.ExecContext(ctx, q, item.Name, item.Status, item.Data, item.UpdatedAt, item.ID)
+	// Use a transaction with explicit isolation level for better concurrency control
+	tx, err := repo.db.BeginTx(ctx, &sql.TxOptions{
+		Isolation: sql.LevelReadCommitted, // Use read committed for better concurrency
+	})
+	if err != nil {
+		return err
+	}
 
-	return err
+	// Ensure transaction is rolled back if there's an error
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	// Execute the query within the transaction
+	_, err = tx.ExecContext(ctx, q, item.Name, item.Status, item.Data, item.UpdatedAt, item.ID)
+	if err != nil {
+		return err
+	}
+
+	// Commit the transaction
+	return tx.Commit()
 }
 
 type scannable interface {
@@ -166,11 +260,47 @@ type job struct {
 }
 
 func initDatabase(path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", path)
+	// Use a comprehensive DSN with WAL mode and optimized settings for concurrency
+	dsn := path + "?_journal=WAL" +
+		"&_timeout=10000" + // 10 second busy timeout
+		"&_txlock=immediate" + // Use immediate transaction locking for better concurrency
+		"&_sync=NORMAL" + // Less syncing for better performance
+		"&cache=shared" + // Enable shared cache mode
+		"&mode=rwc" // Read-write-create mode
+
+	// Open the database with the modernc.org/sqlite driver
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
 
+	// Configure connection pool settings
+	db.SetMaxOpenConns(4)     // Limit concurrent connections to avoid overwhelming SQLite
+	db.SetMaxIdleConns(2)     // Keep some connections ready
+	db.SetConnMaxLifetime(10 * time.Minute) // Refresh connections periodically
+
+	// Set important pragmas for better concurrency and performance
+	_, err = db.Exec("PRAGMA journal_mode=WAL;")
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = db.Exec("PRAGMA synchronous=NORMAL;")
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = db.Exec("PRAGMA busy_timeout=10000;")
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = db.Exec("PRAGMA foreign_keys=ON;")
+	if err != nil {
+		return nil, err
+	}
+
+	// Verify connection is working
 	err = db.Ping()
 	if err != nil {
 		return nil, err

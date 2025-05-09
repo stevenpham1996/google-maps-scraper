@@ -589,3 +589,55 @@ Please use this scraper responsibly and in accordance with all applicable laws a
 
 banner is generated using OpenAI's DALL-E
 > **Note:** If you register via the links on my page, I may get a commission. This is another way to support my work
+
+## Web UI with SQLite Database
+
+The Google Maps Scraper includes a web interface that allows you to manage scraping jobs through a browser. This mode uses SQLite for data storage, making it easy to set up without external database dependencies.
+
+### Running Web UI Mode
+
+#### Using the binary:
+
+```bash
+# Create a data folder for SQLite database and results
+mkdir -p gmapsdata
+
+# Run the application in web mode
+./google-maps-scraper -web -data-folder ./gmapsdata
+```
+
+#### Using Docker:
+
+```bash
+# Create a data folder and run the container
+mkdir -p gmapsdata && docker run -v $PWD/gmapsdata:/gmapsdata -p 8080:8080 gosom/google-maps-scraper -web -data-folder /gmapsdata
+```
+
+### Configuration Options
+
+- `-addr`: Change the listening address and port (default: `:8080`)
+- `-data-folder`: Specify where to store the SQLite database and results (default: `webdata`)
+
+Example with custom port:
+```bash
+./google-maps-scraper -web -data-folder ./gmapsdata -addr :8081
+```
+
+### Accessing the Web Interface
+
+Once running, open your browser and navigate to:
+- http://localhost:8080 (or your custom port)
+
+### Features of the Web UI
+
+- **Job Management**: Create, monitor, and delete scraping jobs
+- **Results Download**: Download results in CSV format
+- **REST API**: Programmatically manage jobs (see API documentation at `/api/docs`)
+- **Persistent Storage**: All jobs and results are stored in SQLite database
+
+### REST API
+
+The web interface includes a REST API that allows you to programmatically manage scraping jobs. API documentation is available at:
+- http://localhost:8080/api/docs
+
+This makes it easy to integrate the scraper with other applications or automate scraping tasks.

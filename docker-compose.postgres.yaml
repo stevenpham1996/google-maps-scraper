@@ -6,7 +6,7 @@ services:
     container_name: gmaps-postgres
     environment:
       - POSTGRES_USER=gmapsuser
-      - POSTGRES_PASSWORD=justbeginagin
+      - POSTGRES_PASSWORD=justbeginagain
       - POSTGRES_DB=gmapsdb
     ports:
       - '5432:5432'
@@ -24,7 +24,7 @@ services:
     container_name: gmaps-migrate
     volumes:
       - ./scripts/migrations:/migrations
-    command: ["-path", "/migrations", "-database", "postgres://gmapsuser:justbeginagin@db:5432/gmapsdb?sslmode=disable", "up"]
+    command: ["-path", "/migrations", "-database", "postgres://gmapsuser:justbeginagain@db:5432/gmapsdb?sslmode=disable", "up"]
     depends_on:
       db:
         condition: service_healthy

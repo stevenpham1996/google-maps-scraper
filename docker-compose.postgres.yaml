@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15.2-alpine
+    container_name: gmaps-postgres
+    environment:
+      - POSTGRES_USER=gmapsuser
+      - POSTGRES_PASSWORD=justbeginagin
+      - POSTGRES_DB=gmapsdb
+    ports:
+      - '5432:5432'
+    volumes:
+      - gmapsdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gmapsuser -d gmapsdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  migrate:
+    image: migrate/migrate
+    container_name: gmaps-migrate
+    volumes:
+      - ./scripts/migrations:/migrations
+    command: ["-path", "/migrations", "-database", "postgres://gmapsuser:justbeginagin@db:5432/gmapsdb?sslmode=disable", "up"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  gmapsdata:
+    name: gmaps_postgres_data
